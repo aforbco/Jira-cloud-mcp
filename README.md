@@ -5,7 +5,7 @@
 [![Python](https://img.shields.io/badge/Python-3.10+-yellow)](https://python.org)
 [![License](https://img.shields.io/badge/License-MIT-brightgreen)](LICENSE)
 
-> **MCP server** that gives AI assistants full read/write access to your Jira Cloud instance — issues, workflows, screens, schemes, permissions, security levels, users, groups, automation rules, and audit logs. **85 tools** via Jira Cloud REST API v3.
+> **MCP server** that gives AI assistants full read/write access to your Jira Cloud instance — issues, workflows, screens, schemes, permissions, security levels, users, groups, automation rules, and audit logs. **86 tools** via Jira Cloud REST API v3.
 
 ## What is this?
 
@@ -20,7 +20,7 @@ Instead of clicking through dozens of admin screens:
 
 ## Key Features
 
-- **85 tools** — read + write in a single MCP (no separate analyst/admin)
+- **86 tools** — read + write in a single MCP (no separate analyst/admin)
 - **Zero plugins** — works directly with Jira Cloud REST API v3
 - **Rate-limit aware** — automatic retry with backoff on 429 responses
 - **Issue CRUD** — create, update, transition, assign, comment, link, delete, bulk transition
@@ -45,7 +45,7 @@ Claude / AI Agent → MCP Server (Python/stdio or SSE) → Jira Cloud REST API v
 
 No Groovy, no ScriptRunner, no plugins — pure REST API.
 
-## Tools (85 total)
+## Tools (86 total)
 
 | Domain | Tools | Capabilities |
 |---|---|---|
@@ -53,7 +53,7 @@ No Groovy, no ScriptRunner, no plugins — pure REST API.
 | Custom Fields | `list_custom_fields`, `get_custom_field`, `get_field_options`, `create_custom_field`, `update_custom_field`, `delete_custom_field`, `add_field_option`, `list_system_fields` | CRUD, contexts, options |
 | Workflows | `list_workflows`, `get_workflow`, `list_statuses`, `list_workflow_schemes`, `get_workflow_scheme`, `list_priorities`, `list_resolutions`, `list_issue_types`, `list_issue_link_types` | Workflows, statuses, priorities, resolutions |
 | Schemes | `list/get_permission_schemes`, `create_permission_scheme`, `add_permission_grant`, `list/get_notification_schemes`, `list/get_issue_security_schemes`, `list/get_issue_type_schemes`, `list/get_field_configurations`, `list_field_config_schemes` | All scheme types with grants/levels |
-| Projects | `list_projects`, `get_project`, `get_project_config`, `get_project_roles`, `add/remove_project_role_member`, `list_project_roles_global`, `create/list_components`, `create/list_versions` | Full project management |
+| Projects | `create_project`, `list_projects`, `get_project`, `get_project_config`, `get_project_roles`, `add/remove_project_role_member`, `list_project_roles_global`, `create/list_components`, `create/list_versions` | Create projects, full management |
 | Screens | `list_screens`, `get_screen`, `create_screen`, `add/remove_field_to/from_screen`, `list_screen_schemes`, `list_issue_type_screen_schemes` | Screen CRUD, field management |
 | Users & Groups | `search_users`, `get_user`, `list_groups`, `get_group_members`, `create_group`, `add/remove_user_to/from_group`, `get_myself` | User lookup, group management |
 | Automation | `list_automation_rules`, `get_automation_rule`, `enable_automation_rule`, `disable_automation_rule` | Native Jira automation |
@@ -126,10 +126,10 @@ Create `.mcp.json` in your project:
 
 | Feature | Cloud MCP | DC Analyst + Admin |
 |---|---|---|
-| Tools | 85 | 170 (79 + 91) |
+| Tools | 86 | 170 (79 + 91) |
 | Plugins needed | None | ScriptRunner |
 | Deployment | Python only | Python + Groovy endpoint |
-| Workflow internals | Limited (REST API) | Full (Java API — conditions, validators, post-functions) |
+| Workflow internals | Full (post-functions, validators, conditions via REST API) | Full (Java API — conditions, validators, post-functions) |
 | ScriptRunner config | N/A | Listeners, behaviours, scripted fields, fragments, jobs |
 | Assets/CMDB | Via REST API | Via Java OSGi API |
 | Automation | Native rules | A4J plugin rules |
