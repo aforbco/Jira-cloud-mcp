@@ -1,0 +1,14 @@
+version: "3.8"
+services:
+  jira-cloud-mcp:
+    build: .
+    ports:
+      - "8001:8001"
+    environment:
+      - JIRA_URL=${JIRA_URL}
+      - JIRA_EMAIL=${JIRA_EMAIL}
+      - JIRA_API_TOKEN=${JIRA_API_TOKEN}
+      - MCP_TRANSPORT=sse
+      - MCP_HOST=0.0.0.0
+      - MCP_PORT=8001
+    restart: unless-stopped
