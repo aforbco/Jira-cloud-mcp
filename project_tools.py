@@ -10,6 +10,39 @@ def _fmt(data) -> str:
 def register_project_tools(mcp, client: JiraCloudClient):
 
     @mcp.tool()
+    async def create_project(key: str, name: str, project_type: str = "software",
+                             lead_account_id: str = "", description: str = "") -> str:
+        """Create a new Jira project.
+        Args:
+            key: Project key (e.g. 'HR', 'DEV') — uppercase, 2-10 chars
+            name: Project name
+            project_type: 'software', 'service_desk', or 'business'
+            lead_account_id: Account ID of project lead (empty = current user)
+            description: Project description
+        """
+        body = {
+            "key": key.upper(),
+            "name": name,
+            "projectTypeKey": project_type,
+        }
+        if lead_account_id:
+            body["leadAccountId"] = lead_account_id
+        else:
+            me = await client.get("/myself")
+            body["leadAccountId"] = me["accountId"]
+        if description:
+            body["description"] = description
+        # Need project template
+        if project_type == "software":
+            body["projectTemplateKey"] = "com.pyxis.greenhopper.jira:gh-simplified-agility-scrum"
+        elif project_type == "service_desk":
+            body["projectTemplateKey"] = "com.atlassian.servicedesk:simplified-it-service-management"
+        else:
+            body["projectTemplateKey"] = "com.atlassian.jira-core-project-templates:jira-core-simplified-task-tracking"
+        data = await client.post("/project", body)
+        return _fmt(data)
+
+    @mcp.tool()
     async def list_projects(search: str = "") -> str:
         """List all projects."""
         params = {"maxResults": 200}
