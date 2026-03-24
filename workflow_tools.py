@@ -54,6 +54,23 @@ def register_workflow_tools(mcp, client: JiraCloudClient):
 
     # --- Workflow transition rules (post-functions, validators, conditions, properties) ---
 
+    @mcp.tool()
+    async def create_workflow(workflow_json: str) -> str:
+        """Create a new workflow via Cloud API.
+
+        Args:
+            workflow_json: Full workflow definition as JSON string. Must contain:
+                - statuses: array of {"id": "status_id", "properties": {}}
+                - workflows: array with one workflow object containing:
+                  - name, description
+                  - statuses: array of {"statusReference": "status_id"}
+                  - transitions: array of transition objects with name, from, to, type, rules
+        Example transition types: 'initial' (create), 'directed' (normal)
+        """
+        body = json.loads(workflow_json)
+        data = await client.post("/workflows/create", body)
+        return _fmt(data)
+
     async def _get_workflow_full(workflow_name: str) -> dict:
         """Get full workflow with transitions and rules for modification."""
         data = await client.get("/workflow/search", workflowName=workflow_name,

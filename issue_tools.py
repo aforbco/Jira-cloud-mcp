@@ -107,10 +107,29 @@ def register_issue_tools(mcp, client: JiraCloudClient):
                 "type": "doc", "version": 1,
                 "content": [{"type": "paragraph", "content": [{"type": "text", "text": comment}]}]
             }}}]}
+        # First try transition with resolution in fields
         if resolution:
-            body.setdefault("fields", {})["resolution"] = {"name": resolution}
+            body_with_res = dict(body)
+            body_with_res.setdefault("fields", {})["resolution"] = {"name": resolution}
+            try:
+                await client.post(f"/issue/{issue_key}/transitions", body_with_res)
+                return _fmt({"status": "transitioned", "key": issue_key, "to": target["to"]["name"], "resolution": resolution})
+            except Exception:
+                pass  # Fall through to transition without resolution
+
+        # Transition without resolution in body
         await client.post(f"/issue/{issue_key}/transitions", body)
-        return _fmt({"status": "transitioned", "key": issue_key, "to": target["to"]["name"]})
+
+        # Set resolution after transition via separate update
+        if resolution:
+            try:
+                await client.put(f"/issue/{issue_key}", {"fields": {"resolution": {"name": resolution}}})
+            except Exception:
+                return _fmt({"status": "transitioned", "key": issue_key, "to": target["to"]["name"],
+                             "warning": f"Transition succeeded but resolution '{resolution}' could not be set"})
+
+        return _fmt({"status": "transitioned", "key": issue_key, "to": target["to"]["name"],
+                     "resolution": resolution if resolution else None})
 
     @mcp.tool()
     async def assign_issue(issue_key: str, assignee: str) -> str:
