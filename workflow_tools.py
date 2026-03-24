@@ -52,6 +52,208 @@ def register_workflow_tools(mcp, client: JiraCloudClient):
         data = await client.get(f"/workflowscheme/{scheme_id}")
         return _fmt(data)
 
+    # --- Workflow transition rules (post-functions, validators, conditions, properties) ---
+
+    async def _get_workflow_full(workflow_name: str) -> dict:
+        """Get full workflow with transitions and rules for modification."""
+        data = await client.get("/workflow/search", workflowName=workflow_name,
+                                expand="transitions.rules,transitions.properties,statuses")
+        workflows = data.get("values", [])
+        if not workflows:
+            raise ValueError(f"Workflow '{workflow_name}' not found")
+        return workflows[0]
+
+    async def _update_workflow(workflow: dict) -> dict:
+        """Update workflow via Cloud API. Sends full workflow definition."""
+        entity_id = workflow["id"]["entityId"]
+        body = {
+            "workflows": [workflow],
+            "payload": {
+                "scope": {"type": "GLOBAL"}
+            }
+        }
+        return await client.post("/workflows/update", body)
+
+    @mcp.tool()
+    async def get_workflow_transition(workflow_name: str, transition_id: str) -> str:
+        """Get a specific workflow transition with all rules (post-functions, validators, conditions, properties).
+
+        Args:
+            workflow_name: Workflow name
+            transition_id: Transition ID (e.g. '11', '21')
+        """
+        wf = await _get_workflow_full(workflow_name)
+        for t in wf.get("transitions", []):
+            if str(t["id"]) == str(transition_id):
+                return _fmt(t)
+        return _fmt({"error": f"Transition {transition_id} not found", "available": [
+            {"id": t["id"], "name": t["name"]} for t in wf.get("transitions", [])
+        ]})
+
+    @mcp.tool()
+    async def add_post_function(workflow_name: str, transition_id: str,
+                                function_type: str, configuration: str = "{}") -> str:
+        """Add a post-function to a workflow transition.
+
+        Args:
+            workflow_name: Workflow name
+            transition_id: Transition ID
+            function_type: Built-in type, e.g.:
+                'AssignToCurrentUserFunction', 'UpdateIssueFieldFunction',
+                'CreateCommentFunction', 'FireIssueEventFunction',
+                'CopyValueFromOtherFieldPostFunction', 'SetIssueSecurityFromRoleFunction',
+                'UpdateIssueStatusFunction', 'GenerateChangeHistoryFunction',
+                'IssueReindexFunction', 'UpdateIssueCustomFieldPostFunction'
+            configuration: JSON config, e.g. '{"fieldId": "resolution", "fieldValue": ""}' for UpdateIssueFieldFunction
+        """
+        wf = await _get_workflow_full(workflow_name)
+        config = json.loads(configuration) if configuration and configuration != "{}" else None
+        for t in wf.get("transitions", []):
+            if str(t["id"]) == str(transition_id):
+                pf = {"type": function_type}
+                if config:
+                    pf["configuration"] = config
+                t.setdefault("rules", {}).setdefault("postFunctions", []).append(pf)
+                result = await _update_workflow(wf)
+                return _fmt({"status": "added", "type": function_type, "transition": t["name"]})
+        return _fmt({"error": f"Transition {transition_id} not found"})
+
+    @mcp.tool()
+    async def add_validator(workflow_name: str, transition_id: str,
+                            validator_type: str, configuration: str = "{}") -> str:
+        """Add a validator to a workflow transition.
+
+        Args:
+            workflow_name: Workflow name
+            transition_id: Transition ID
+            validator_type: Built-in type, e.g.:
+                'PermissionValidator' (config: {"permissionKey": "CREATE_ISSUES"}),
+                'FieldRequiredValidator' (config: {"fieldId": "assignee"}),
+                'FieldHasSingleValueValidator', 'RegexpFieldValidator',
+                'ParentStatusValidator', 'PreviousStatusValidator',
+                'WindowsDateValidator'
+            configuration: JSON config for the validator
+        """
+        wf = await _get_workflow_full(workflow_name)
+        config = json.loads(configuration) if configuration and configuration != "{}" else None
+        for t in wf.get("transitions", []):
+            if str(t["id"]) == str(transition_id):
+                v = {"type": validator_type}
+                if config:
+                    v["configuration"] = config
+                t.setdefault("rules", {}).setdefault("validators", []).append(v)
+                result = await _update_workflow(wf)
+                return _fmt({"status": "added", "type": validator_type, "transition": t["name"]})
+        return _fmt({"error": f"Transition {transition_id} not found"})
+
+    @mcp.tool()
+    async def set_condition(workflow_name: str, transition_id: str,
+                            conditions_json: str) -> str:
+        """Set conditions on a workflow transition (replaces existing conditions).
+
+        Args:
+            workflow_name: Workflow name
+            transition_id: Transition ID
+            conditions_json: JSON condition tree. Examples:
+                Simple: '{"nodeType": "simple", "type": "AllowOnlyAssignee"}'
+                Permission: '{"nodeType": "simple", "type": "PermissionCondition", "configuration": {"permissionKey": "RESOLVE_ISSUES"}}'
+                AND compound: '{"nodeType": "compound", "operator": "AND", "conditions": [...]}'
+                Group: '{"nodeType": "simple", "type": "InGroupCondition", "configuration": {"group": "jira-admins"}}'
+                Status: '{"nodeType": "simple", "type": "StatusCondition", "configuration": {"statusId": "1"}}'
+        """
+        wf = await _get_workflow_full(workflow_name)
+        conditions = json.loads(conditions_json)
+        for t in wf.get("transitions", []):
+            if str(t["id"]) == str(transition_id):
+                t.setdefault("rules", {})["conditionsTree"] = conditions
+                result = await _update_workflow(wf)
+                return _fmt({"status": "set", "transition": t["name"]})
+        return _fmt({"error": f"Transition {transition_id} not found"})
+
+    @mcp.tool()
+    async def set_transition_property(workflow_name: str, transition_id: str,
+                                      key: str, value: str) -> str:
+        """Set a property on a workflow transition.
+
+        Args:
+            workflow_name: Workflow name
+            transition_id: Transition ID
+            key: Property key (e.g. 'jira.field.resolution.include', 'jira.issue.editable')
+            value: Property value
+        """
+        wf = await _get_workflow_full(workflow_name)
+        for t in wf.get("transitions", []):
+            if str(t["id"]) == str(transition_id):
+                props = t.setdefault("properties", {})
+                props[key] = value
+                result = await _update_workflow(wf)
+                return _fmt({"status": "set", "key": key, "value": value, "transition": t["name"]})
+        return _fmt({"error": f"Transition {transition_id} not found"})
+
+    @mcp.tool()
+    async def remove_post_function(workflow_name: str, transition_id: str,
+                                   function_type: str) -> str:
+        """Remove a post-function from a workflow transition by type.
+
+        Args:
+            workflow_name: Workflow name
+            transition_id: Transition ID
+            function_type: Type to remove (e.g. 'AssignToCurrentUserFunction')
+        """
+        wf = await _get_workflow_full(workflow_name)
+        for t in wf.get("transitions", []):
+            if str(t["id"]) == str(transition_id):
+                pfs = t.get("rules", {}).get("postFunctions", [])
+                before = len(pfs)
+                t["rules"]["postFunctions"] = [pf for pf in pfs if pf.get("type") != function_type]
+                after = len(t["rules"]["postFunctions"])
+                if before == after:
+                    return _fmt({"error": f"Post-function '{function_type}' not found on transition"})
+                result = await _update_workflow(wf)
+                return _fmt({"status": "removed", "type": function_type, "removed": before - after})
+        return _fmt({"error": f"Transition {transition_id} not found"})
+
+    @mcp.tool()
+    async def remove_validator(workflow_name: str, transition_id: str,
+                               validator_type: str) -> str:
+        """Remove a validator from a workflow transition by type.
+
+        Args:
+            workflow_name: Workflow name
+            transition_id: Transition ID
+            validator_type: Type to remove (e.g. 'PermissionValidator')
+        """
+        wf = await _get_workflow_full(workflow_name)
+        for t in wf.get("transitions", []):
+            if str(t["id"]) == str(transition_id):
+                vs = t.get("rules", {}).get("validators", [])
+                before = len(vs)
+                t["rules"]["validators"] = [v for v in vs if v.get("type") != validator_type]
+                after = len(t["rules"]["validators"])
+                if before == after:
+                    return _fmt({"error": f"Validator '{validator_type}' not found on transition"})
+                result = await _update_workflow(wf)
+                return _fmt({"status": "removed", "type": validator_type, "removed": before - after})
+        return _fmt({"error": f"Transition {transition_id} not found"})
+
+    @mcp.tool()
+    async def remove_condition(workflow_name: str, transition_id: str) -> str:
+        """Remove all conditions from a workflow transition.
+
+        Args:
+            workflow_name: Workflow name
+            transition_id: Transition ID
+        """
+        wf = await _get_workflow_full(workflow_name)
+        for t in wf.get("transitions", []):
+            if str(t["id"]) == str(transition_id):
+                if "conditionsTree" in t.get("rules", {}):
+                    del t["rules"]["conditionsTree"]
+                    result = await _update_workflow(wf)
+                    return _fmt({"status": "removed", "transition": t["name"]})
+                return _fmt({"error": "No conditions on this transition"})
+        return _fmt({"error": f"Transition {transition_id} not found"})
+
     @mcp.tool()
     async def list_priorities() -> str:
         """List all priorities."""
