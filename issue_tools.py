@@ -15,7 +15,9 @@ def register_issue_tools(mcp, client: JiraCloudClient):
         """Search Jira issues using JQL.
         Examples: 'project = HR', 'assignee = currentUser() AND status != Done'.
         Use fields to limit response size. Max 100 results."""
-        data = await client.get("/search", jql=jql, fields=fields, maxResults=min(max_results, 100))
+        # Cloud deprecated GET /search in 2025, use POST /search/jql
+        body = {"jql": jql, "fields": [f.strip() for f in fields.split(",")], "maxResults": min(max_results, 100)}
+        data = await client.post("/search/jql", body)
         return _fmt(data)
 
     @mcp.tool()
@@ -185,7 +187,7 @@ def register_issue_tools(mcp, client: JiraCloudClient):
     @mcp.tool()
     async def bulk_transition(jql: str, transition_name: str, comment: str = "", max_issues: int = 50) -> str:
         """Bulk transition issues matching JQL. Max 50."""
-        search = await client.get("/search", jql=jql, fields="key", maxResults=min(max_issues, 50))
+        search = await client.post("/search/jql", {"jql": jql, "fields": ["key"], "maxResults": min(max_issues, 50)})
         results = []
         for issue in search.get("issues", []):
             key = issue["key"]
