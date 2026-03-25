@@ -231,3 +231,98 @@ def register_issue_tools(mcp, client: JiraCloudClient):
             except Exception as e:
                 results.append({"key": key, "status": "error", "reason": str(e)})
         return _fmt({"transitioned": len([r for r in results if r["status"] == "ok"]), "results": results})
+
+    @mcp.tool()
+    async def list_attachments(issue_key: str) -> str:
+        """List all attachments on an issue — filename, size, author, date, mime type.
+
+        Args:
+            issue_key: Issue key (e.g. 'PROJ-123')
+        """
+        data = await client.get(f"/issue/{issue_key}", fields="attachment")
+        attachments = data.get("fields", {}).get("attachment", [])
+        return _fmt([{
+            "id": a.get("id"),
+            "filename": a.get("filename"),
+            "size": a.get("size"),
+            "mimeType": a.get("mimeType"),
+            "author": a.get("author", {}).get("displayName"),
+            "created": a.get("created"),
+            "content": a.get("content"),
+        } for a in attachments])
+
+    @mcp.tool()
+    async def get_attachment_content(attachment_id: str) -> str:
+        """Download attachment content. Returns text for text files, base64 for small binary files.
+        Use list_attachments first to get IDs.
+
+        Args:
+            attachment_id: Attachment ID
+        """
+        import base64
+        meta = await client.get(f"/attachment/{attachment_id}")
+        filename = meta.get("filename", "")
+        size = meta.get("size", 0)
+        mime = meta.get("mimeType", "")
+        content_url = meta.get("content", "")
+
+        if size > 1_000_000:
+            return _fmt({"id": attachment_id, "filename": filename, "size": size,
+                         "warning": "File too large (>1MB)", "contentUrl": content_url})
+
+        resp = await client.client.get(content_url)
+        resp.raise_for_status()
+
+        text_types = ["text/", "application/json", "application/xml", "application/csv"]
+        if any(mime.startswith(t) for t in text_types) or filename.endswith(
+            (".txt", ".csv", ".json", ".xml", ".yml", ".yaml", ".md", ".log", ".sql", ".py", ".js")):
+            try:
+                text = resp.text
+                return _fmt({"id": attachment_id, "filename": filename, "mimeType": mime,
+                             "content": text[:50000], "truncated": len(text) > 50000})
+            except Exception:
+                pass
+
+        if size <= 100_000:
+            b64 = base64.b64encode(resp.content).decode()
+            return _fmt({"id": attachment_id, "filename": filename, "mimeType": mime,
+                         "contentBase64": b64, "size": size})
+
+        return _fmt({"id": attachment_id, "filename": filename, "size": size,
+                     "hint": "Binary file too large for inline", "contentUrl": content_url})
+
+    @mcp.tool()
+    async def add_attachment(issue_key: str, file_path: str) -> str:
+        """Upload a file as attachment to an issue.
+
+        Args:
+            issue_key: Issue key (e.g. 'PROJ-123')
+            file_path: Local file path to upload
+        """
+        import os
+        import httpx as _httpx
+        from config import settings
+
+        filename = os.path.basename(file_path)
+        url = f"{settings.api_v3_url}/issue/{issue_key}/attachments"
+
+        with open(file_path, "rb") as f:
+            async with _httpx.AsyncClient(
+                auth=settings.auth,
+                headers={"X-Atlassian-Token": "no-check"},
+                verify=settings.jira_ssl_verify,
+                timeout=120.0,
+            ) as upload_client:
+                resp = await upload_client.post(url, files={"file": (filename, f)})
+                resp.raise_for_status()
+                return _fmt(resp.json())
+
+    @mcp.tool()
+    async def delete_attachment(attachment_id: str) -> str:
+        """Delete an attachment by ID. IRREVERSIBLE.
+
+        Args:
+            attachment_id: Attachment ID
+        """
+        await client.delete(f"/attachment/{attachment_id}")
+        return _fmt({"status": "deleted", "attachmentId": attachment_id})
